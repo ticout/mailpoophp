@@ -1,0 +1,104 @@
+<?php class mail{
+    public $data;
+    public $message;
+    private $boundary;
+    private $boundary_alt;
+    private $legalExtension = array('.doc','.pdf','.xls','.ppt','.jpg','.jpeg','.jpe','.png','.csv');
+    public function __construct($data){
+        $this->data = $data;
+        $this->boundary = "-----=".md5(rand());
+        $this->boundary_alt ="-----=".md5(rand());
+    }
+        private function getMail($identifiant){
+                try
+                {
+                    $bdd = new PDO('mysql:host=wicote;dbname=wicote;charset=utf8', 'root', '', array(PDO::ATTR_ERRMODE => PDO::ERRMODE_WARNING));
+                    $req = $bdd->prepare('SELECT mail FROM tb_users WHERE pseudo=:pseudo');
+                    $req->bindValue(':pseudo', $identifiant, PDO::PARAM_STR);
+                    $req->execute();
+                    $res = $req->fetch();
+                    return $res['mail'];
+                }
+            catch (PDOException $e)
+                {
+                        die('Erreur : ' . $e->getMessage());
+                }
+    }
+    public function addFile($file){
+        $extension = strstr(strtolower($file['name']),'.');
+        echo $extension;
+        $message="";
+        if(in_array($extension,$this->legalExtension)){
+            $mime = mime_content_type($file['tmp_name']);
+            //=====Lecture et mise en forme de la pièce jointe.
+            $fichier   = fopen($file['tmp_name'], "rb");
+            $attachement = fread($fichier, $file['size']);
+            $attachement = chunk_split(base64_encode($attachement));
+            fclose($fichier);
+            //==========
+            $message.="Content-Type:".$mime; "name=\"{$file['name']}\"".$this->passage_ligne;
+            $this->message.="Content-Transfer-Encoding: base64".$this->passage_ligne;
+            $this->message.="Content-Disposition: attachment; filename=\"{$file['name']}\"".$this->passage_ligne;
+            $this->message.= $this->passage_ligne.$attachement.$this->passage_ligne.$this->passage_ligne;
+            $this->message.= $this->passage_ligne."--".$this->boundary.$this->passage_ligne;
+//            return $message;
+        }else unlink($file['tmp_name']);
+    }
+    public function mailDevis($expediteur, $file=null){
+        $mailDestinataire = $this->getMail($this->data['pseudo']); // Déclaration de l'adresse de destination.
+        $mailreponse = $this->getMail($expediteur); //Déclaration de l'adresse de réponse
+        if (!preg_match("#^[a-z0-9._-]+@(hotmail|live|msn).[a-z]{2,4}$#", $mailDestinataire)) // On filtre les serveurs qui présentent des bogues.
+        {
+            $this->passage_ligne = "\r\n";
+        }
+        else
+        {
+            $this->passage_ligne = "\n";
+        }
+        //=====Déclaration des messages au format texte et au format HTML.
+        $message_txt = htmlspecialchars($this->data['message']);
+        //==========
+
+
+        //=====Définition du sujet.
+        $sujet = "{$this->data['titre']}";
+        //=========
+
+        //=====Création du header de l'e-mail.
+        $header = "From: \"Wicote\"<adress@mail.domaine>".$this->passage_ligne;
+        $header.= "Reply-to: \"'{$expediteur}\" <{$mailreponse}>".$this->passage_ligne;
+        $header.= "MIME-Version: 1.0".$this->passage_ligne;
+        $header.= "Content-Type: multipart/mixed;".$this->passage_ligne." boundary=\"$this->boundary\"".$this->passage_ligne;
+        //==========
+
+        //=====Création du message.
+        $this->message = $this->passage_ligne."--".$this->boundary.$this->passage_ligne;
+        $this->message.= "Content-Type: multipart/alternative;".$this->passage_ligne." boundary=\"$this->boundary_alt\"".$this->passage_ligne;
+        $this->message.= $this->passage_ligne."--".$this->boundary_alt.$this->passage_ligne;
+        //=====Ajout du message au format texte.
+        $this->message.= "Content-Type: text/plain; charset=\"ISO-8859-1\"".$this->passage_ligne;
+        $this->message.= "Content-Transfer-Encoding: 8bit".$this->passage_ligne;
+        $this->message.= $this->passage_ligne.$message_txt.$this->passage_ligne;
+        //==========
+        //=====Ajout du message au format HTML
+        $message.= "Content-Type: text/html; charset=\"ISO-8859-1\"".$passage_ligne;
+        $message.= "Content-Transfer-Encoding: 8bit".$passage_ligne;
+        $message.= $passage_ligne.$message_html.$passage_ligne;
+        //==========
+        //=====On ferme la boundary alternative.
+        $this->message.= $this->passage_ligne."--".$this->boundary_alt."--".$this->passage_ligne;
+        if($file){
+            $this->message.= $this->passage_ligne."--".$this->boundary.$this->passage_ligne;
+            foreach($file as $index => $array){
+                if($file[$index]["error"] === 0){
+                    $this->addFile($file[$index]);
+                } else echo "Fichier(s) non envoyé(s): {$file[$index]["name"]}";
+            }
+        }
+        $this->message.= $this->passage_ligne."--".$this->boundary."--".$this->passage_ligne; 
+        //=====Envoi de l'e-mail.
+        mail($mailDestinataire,$sujet,$this->message,$header);
+
+        //==========
+    }
+}
